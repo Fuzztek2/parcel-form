@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Parcel Distribution Form</title>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <style>
+    body { font-family: Arial; padding: 20px; }
+    canvas { border: 1px solid #ccc; margin-top: 10px; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <h2>Scan Recipient QR Code</h2>
+  <div id="qr-reader" style="width: 300px;"></div>
+  <br>
+
+  <form id="dataForm">
+    <label>Name:<br><input type="text" id="name" required></label><br><br>
+    <label>Area Code:<br><input type="text" id="areaCode" required></label><br><br>
+    <label>Reference Number:<br><input type="text" id="refNumber" required></label><br><br>
+
+    <label>Product Type:<br>
+      <select id="productType" required>
+        <option value="">Select</option>
+        <option>Food Parcel</option>
+        <option>Toiletries</option>
+        <option>Clothing</option>
+      </select>
+    </label><br><br>
+
+    <label>Agent Name:<br>
+      <input type="text" id="agentName" required>
+    </label><br><br>
+
+    <label>Signature:<br>
+      <canvas id="signaturePad" width="300" height="100"></canvas><br>
+      <button type="button" onclick="clearSignature()">Clear</button>
+    </label><br><br>
+
+    <label>
+      <input type="checkbox" id="verbalConfirm"> Recipient confirmed verbally (unable to sign)
+    </label><br><br>
+
+    <button type="submit">Submit</button>
+  </form>
+
+  <script>
+    // === QR Code Scanner ===
+    function parseQRData(data) {
+      try {
+        const parts = data.split("|");
+        document.getElementById("areaCode").value = parts[0];
+        document.getElementById("refNumber").value = parts[1];
+        document.getElementById("name").value = parts[2];
+      } catch (e) {
+        alert("QR data format incorrect. Expected: AreaCode|RefNumber|Name");
+      }
+    }
+
+    const qrScanner = new Html5Qrcode("qr-reader");
+    Html5Qrcode.getCameras().then(devices => {
+      if (devices.length) {
+        qrScanner.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: 250 },
+          (decoded) => {
+            parseQRData(decoded);
+            qrScanner.stop();
+            document.getElementById("qr-reader").classList.add("hidden");
+          }
+        );
+      }
+    });
+
+    // === Signature Pad ===
+    const canvas = document.getElementById("signaturePad");
+    const ctx = canvas.getContext("2d");
+    let drawing = false;
+
+    canvas.addEventListener("mousedown", () => drawing = true);
+    canvas.addEventListener("mouseup", () => drawing = false);
+    canvas.addEventListener("mouseout", () => drawing = false);
+    canvas.addEventListener("mousemove", draw);
+
+    function draw(e) {
+      if (!drawing) return;
+      const rect = canvas.getBoundingClientRect();
+      ctx.lineWidth = 2;
+      ctx.lineCap = "round";
+      ctx.strokeStyle = "#000";
+      ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top);
+    }
+
+    function clearSignature() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    // === Submit to Google Apps Script ===
+    document.getElementById("dataForm").addEventListener("submit", async function (e) {
+      e.preventDefault();
+
+      const signatureData = document.getElementById("verbalConfirm").checked
+        ? null
+        : canvas.toDataURL();
+
+      const payload = {
+        name: document.getElementById("name").value,
+        areaCode: document.getElementById("areaCode").value,
+        refNumber: document.getElementById("refNumber").value,
+        productType: document.getElementById("productType").value,
+        agentName: document.getElementById("agentName").value,
+        signatureData,
+        verbalConfirm: document.getElementById("verbalConfirm").checked ? "Yes" : "No"
+      };
+
+      try {
+        const res = await fetch("https://script.google.com/macros/s/AKfycbx8Hb-n5uRBiQEqG0ojtoX5A3D9-m2VwjVulNzDNCaWolUmxUVHJepr1CL7jtIvQqOT/exec", {
+          method: "POST",
+          body: JSON.stringify(payload),
+          headers: { "Content-Type": "application/json" }
+        });
+
+        if (res.ok) {
+          alert("Submission successful!");
+          document.getElementById("dataForm").reset();
+          clearSignature();
+        } else {
+          alert("Failed to submit. Try again.");
+        }
+      } catch (err) {
+        console.error(err);
+        alert("Error sending data.");
+      }
+    });
+  </script>
+</body>
+</html>
